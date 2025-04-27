@@ -1,6 +1,5 @@
 import asyncio
 import os
-import json
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -17,6 +16,22 @@ from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import pytz
 
+# --- ФЕЙКОВЫЙ ВЕБ-СЕРВЕР для Railway ---
+from flask import Flask
+import threading
+
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "I'm alive"
+
+def run():
+    app.run(host='0.0.0.0', port=8080)
+
+threading.Thread(target=run).start()
+# --- конец фейкового сервера ---
+
 # === НАСТРОЙКИ ===
 TOKEN = os.getenv("TOKEN")
 SPREADSHEET_NAME = "WorkHours"
@@ -25,7 +40,7 @@ WARSAW = pytz.timezone('Europe/Warsaw')
 # === Google Sheets ===
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds_json = os.getenv("GOOGLE_CREDS_JSON")
-creds = ServiceAccountCredentials.from_json_keyfile_dict(json.loads(creds_json), scope)
+creds = ServiceAccountCredentials.from_json_keyfile_dict(eval(creds_json), scope)
 client = gspread.authorize(creds)
 sheet = client.open(SPREADSHEET_NAME).sheet1
 
@@ -100,7 +115,7 @@ async def save_hours(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     today_col = datetime.now(WARSAW).day + 5
     cell = sheet.find(user_id)
-    
+
     if cell:
         sheet.update_cell(cell.row, today_col, hours)
 
@@ -120,13 +135,13 @@ async def save_hours(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
     cell = sheet.find(user_id)
-    
+
     if not cell:
         await update.message.reply_text(INVALID_USER_MSG, reply_markup=main_menu_keyboard)
         return
 
     row = sheet.row_values(cell.row)
-    calendar = "📅 Ваши часы за месяц:\n"
+    calendar = "📅 Ваши часы за месяц:\n\n"
     total_hours = 0
 
     for day in range(1, 32):
@@ -160,7 +175,7 @@ async def export_month(context: CallbackContext):
         new_sheet.update('A1', data)
 
 # === НАСТРОЙКА ПРИЛОЖЕНИЯ ===
-app = ApplicationBuilder().token(TOKEN).build()
+app_telegram = ApplicationBuilder().token(TOKEN).build()
 
 # === ОБРАБОТЧИКИ ===
 conv_handler = ConversationHandler(
@@ -193,21 +208,21 @@ hours_handler = ConversationHandler(
     ]
 )
 
-app.add_handler(CommandHandler("start", start))
-app.add_handler(conv_handler)
-app.add_handler(hours_handler)
-app.add_handler(CommandHandler("calendar", show_calendar))
-app.add_handler(MessageHandler(filters.Regex('^📅 Календарь$'), show_calendar))
+app_telegram.add_handler(CommandHandler("start", start))
+app_telegram.add_handler(conv_handler)
+app_telegram.add_handler(hours_handler)
+app_telegram.add_handler(CommandHandler("calendar", show_calendar))
+app_telegram.add_handler(MessageHandler(filters.Regex('^📅 Календарь$'), show_calendar))
 
 # === ПЛАНИРОВЩИК ЗАДАЧ ===
 scheduler = AsyncIOScheduler()
-scheduler.add_job(send_reminders, trigger='cron', hour=23, minute=0, timezone=WARSAW)
-scheduler.add_job(export_month, trigger='cron', day=31, hour=23, minute=5, timezone=WARSAW)
+scheduler.add_job(send_reminders, trigger='cron', hour=23, minute=0, timezone=WARSAW, args=[app_telegram])
+scheduler.add_job(export_month, trigger='cron', day=31, hour=23, minute=5, timezone=WARSAW, args=[app_telegram])
 
 # === ОСНОВНАЯ ФУНКЦИЯ ===
 async def main():
     scheduler.start()
-    await app.run_polling()
+    await app_telegram.run_polling()
 
 # === ЗАПУСК ===
 if __name__ == "__main__":

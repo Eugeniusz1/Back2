@@ -1,6 +1,6 @@
-
 import asyncio
 import os
+import json
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -25,7 +25,7 @@ WARSAW = pytz.timezone('Europe/Warsaw')
 # === Google Sheets ===
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds_json = os.getenv("GOOGLE_CREDS_JSON")
-creds = ServiceAccountCredentials.from_json_keyfile_dict(eval(creds_json), scope)
+creds = ServiceAccountCredentials.from_json_keyfile_dict(json.loads(creds_json), scope)
 client = gspread.authorize(creds)
 sheet = client.open(SPREADSHEET_NAME).sheet1
 
@@ -126,24 +126,19 @@ async def show_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     row = sheet.row_values(cell.row)
-    calendar = "📅 Ваши часы за месяц:
-
-"
+    calendar = "📅 Ваши часы за месяц:\n"
     total_hours = 0
 
     for day in range(1, 32):
         col = day + 5
         try:
             value = row[col - 1]
-            calendar += f"{day}: {value if value else '-'}
-"
+            calendar += f"{day}: {value if value else '-'}\n"
             total_hours += float(value or 0)
         except IndexError:
-            calendar += f"{day}: -
-"
+            calendar += f"{day}: -\n"
 
-    calendar += f"
-**Сумма за месяц: {total_hours} ч.**"
+    calendar += f"\n**Сумма за месяц: {total_hours} ч.**"
     await update.message.reply_text(calendar, parse_mode='Markdown', reply_markup=main_menu_keyboard)
 
 async def send_reminders(context: CallbackContext):
@@ -206,8 +201,8 @@ app.add_handler(MessageHandler(filters.Regex('^📅 Календарь$'), show_
 
 # === ПЛАНИРОВЩИК ЗАДАЧ ===
 scheduler = AsyncIOScheduler()
-scheduler.add_job(send_reminders, trigger='cron', hour=23, minute=0, timezone=WARSAW, args=[app])
-scheduler.add_job(export_month, trigger='cron', day=31, hour=23, minute=5, timezone=WARSAW, args=[app])
+scheduler.add_job(send_reminders, trigger='cron', hour=23, minute=0, timezone=WARSAW)
+scheduler.add_job(export_month, trigger='cron', day=31, hour=23, minute=5, timezone=WARSAW)
 
 # === ОСНОВНАЯ ФУНКЦИЯ ===
 async def main():
